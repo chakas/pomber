@@ -1,10 +1,7 @@
 package com.chakas;
 
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.util.EntityUtils;
+
+import com.google.common.collect.ImmutableSortedMap;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -12,42 +9,44 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import sun.net.www.http.HttpClient;
 
-import java.util.Properties;
+import javax.inject.Inject;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-class DepWithTime {
-    String groupId;
-    String version;
-    String artifactId;
-    String timeStamp;
 
-    @Override
-    public String toString() {
-        return "DepWithTime{" +
-                "groupId='" + groupId + '\'' +
-                ", version='" + version + '\'' +
-                ", artifactId='" + artifactId + '\'' +
-                ", timeStamp='" + timeStamp + '\'' +
-                '}';
-    }
-}
-
-@Mojo(name="search",defaultPhase = LifecyclePhase.INITIALIZE)
+@Mojo(name = "search", defaultPhase = LifecyclePhase.COMPILE)
 public class MavenMojo extends AbstractMojo {
 
-    @Parameter(property = "project",readonly = true)
+    @Inject
+    private MavenRequester mavenRequester;
+
+    @Parameter(property = "project", readonly = true)
     private MavenProject project;
 
     public void execute() throws MojoExecutionException, MojoFailureException {
-        project.getDependencies()
-                .parallelStream()
-                .forEach(dependency -> {
-                    getLog().info(String.format("https://search.maven.org/solrsearch/select?q=g:\"%s\"+AND+a:\"%s\"+AND+v:\"%s\"&core=gav&rows=20&wt=json",
-                            dependency.getGroupId(),
-                            dependency.getArtifactId(),
-                            dependency.getVersion()
-                    ));
+        Map<String, DepWithTime> depWithTimeMap = project.getDependencies()
+                .stream()
+                .map(dependency -> new DepWithTime(dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion()))
+                .map(depWithTime ->
+                        mavenRequester.request(getLog(), depWithTime))
+                .collect(Collectors.toMap(depWithTime -> depWithTime.getGroupId() + ":" + depWithTime.getArtifactId() + ":" + depWithTime.getVersion(), Function.identity(),
+                        (v1, v2) -> {
+                            throw new RuntimeException(String.format("Duplicate key for values %s and %s", v1, v2));
+                        },
+                        TreeMap::new));
+//                .collect(Collectors.toMap(depWithTime -> depWithTime.getGroupId() + ":" + depWithTime.getArtifactId() + ":" + depWithTime.getVersion(), Function.identity()));
+
+        depWithTimeMap
+                .forEach((s, depWithTime) -> {
+                    if (depWithTime.getTimeStamp() != null)
+                        getLog().info(String.format("%-32s|%-41s|%-15s|%-15s",
+                                depWithTime.groupId.substring(0, Math.min(depWithTime.groupId.length(), 30)),
+                                depWithTime.artifactId.substring(0, Math.min(depWithTime.artifactId.length(), 40)),
+                                depWithTime.version,
+                                depWithTime.timeStamp));
                 });
     }
 }
