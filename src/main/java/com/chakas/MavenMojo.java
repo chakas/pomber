@@ -11,6 +11,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 
 import javax.inject.Inject;
+import java.util.Date;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -23,15 +24,32 @@ public class MavenMojo extends AbstractMojo {
     @Inject
     private MavenRequester mavenRequester;
 
+    @Inject
+    private DateFilter filter;
+
+    @Parameter(property = "ts",defaultValue = "")
+    private String timefilter;
+
     @Parameter(property = "project", readonly = true)
     private MavenProject project;
+    private Date filterDate;
 
     public void execute() throws MojoExecutionException, MojoFailureException {
+
+        if(timefilter != null) {
+            filterDate = filter.dateFilter(timefilter);
+            getLog().info(" Filtering based on the timestamp : " + filterDate.toString());
+        }
+
         Map<String, DepWithTime> depWithTimeMap = project.getDependencies()
                 .stream()
                 .map(dependency -> new DepWithTime(dependency.getGroupId(), dependency.getArtifactId(), dependency.getVersion()))
-                .map(depWithTime ->
-                        mavenRequester.request(getLog(), depWithTime))
+                .map(depWithTime -> mavenRequester.request(getLog(), depWithTime))
+                .filter(depWithTime -> {
+                    if(timefilter == null || timefilter.length() == 0)
+                        return true;
+                    return depWithTime.timeStamp.after(filterDate);
+                })
                 .collect(Collectors.toMap(depWithTime -> depWithTime.getGroupId() + ":" + depWithTime.getArtifactId() + ":" + depWithTime.getVersion(), Function.identity(),
                         (v1, v2) -> {
                             throw new RuntimeException(String.format("Duplicate key for values %s and %s", v1, v2));
