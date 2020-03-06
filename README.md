@@ -25,3 +25,8 @@ Ts - Timestamp filter which will check which are older than 2year
  m - month
  d - day
 `
+
+
+## Roadmap:
+- Stop the build if it fails any of the condition
+- Output as JSON response
